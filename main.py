@@ -5,7 +5,7 @@ import os
 import io
 import csv
 import re
-from datetime import datetime as datetime_cls, timedelta, date as date_cls # Modified import
+from datetime import datetime as datetime_cls, timedelta, date as date_cls
 from scipy.stats import poisson
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any, FrozenSet, Optional, Tuple
@@ -15,14 +15,12 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
 # --- Configuration: Main Data Directory ---
-DATA_DIR = 'data' # All data files should be in a 'data' subdirectory
+DATA_DIR = 'data'
 
-# Create data directory if it doesn't exist (useful for local testing)
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
     print(f"INFO: Created data directory: {DATA_DIR}")
     print(f"IMPORTANT: Please place all required data files (JSON, XLSX, HTML, MD) into the '{DATA_DIR}' directory.")
-
 
 # --- File Paths (using DATA_DIR) ---
 CORRECT_SCORE_FILE_PATH = os.path.join(DATA_DIR, "correct_score.json")
@@ -31,7 +29,6 @@ HTML_ODDS_FP = os.path.join(DATA_DIR, 'fifa_club_wc_odds.html')
 MD_ODDS_FP = os.path.join(DATA_DIR, 'fifa_club_wc_odds.md')
 UNIFIED_ANYTIME_GOALSCORER_FILE_PATH = os.path.join(DATA_DIR, "updated_anytimegoalscorer.json")
 OUTPUT_COMBINED_PLAYER_STATS_JSON_FP = os.path.join(DATA_DIR, 'player_combined_match_stats_output.json')
-
 
 # --- Team Name Mapping ---
 TEAM_NAME_MAPPING = {
@@ -119,20 +116,58 @@ TEAM_DETAILS = {
     "Urawa Red Diamonds": {"team_id": "67b8be4765db8d4ef5b05dd3", "short_code": "URD", "api_id": 280, "image":"https://fantasyfootball.sgp1.cdn.digitaloceanspaces.com/cwc%20team%20logo/Urawa%20Red%20Diamonds%20round.png"},
     "Wydad AC": {"team_id": "67b8be4a65db8d4ef5b05e7e", "short_code": "WAC", "api_id": 2846, "image":"https://fantasyfootball.sgp1.cdn.digitaloceanspaces.com/cwc%20team%20logo/Wydad%20AC%20round.png"}
 }
-DEFAULT_TEAM_DETAIL = {"team_id": "N/A_ID", "short_code": "N/A", "api_id": None, "image": "https://example.com/default_image.png"}
 
+# --- Enhanced Model Tuning Constants ---
+AGS_HYBRID_MODEL_WEIGHTS = {
+    'direct_odds': 0.6,  # More balanced - reduced from 0.75
+    'poisson_model': 0.4  # Increased from 0.25
+}
+
+# Enhanced probability caps for realism
+PROBABILITY_CAPS = {
+    'ags_max': 75.0,  # Maximum 75% AGS probability
+    'ags_min': 0.1,   # Minimum 0.1% AGS probability  
+    'aas_max': 60.0,  # Maximum 60% AAS probability
+    'aas_min': 0.1,   # Minimum 0.1% AAS probability
+    'cs_max': 85.0,   # Maximum 85% clean sheet probability
+    'cs_min': 5.0     # Minimum 5% clean sheet probability
+}
+
+# Enhanced positional modifiers based on real football data
+AAS_POSITIONAL_MODIFIERS = {
+    'Midfielder': 1.4, 'Attacking Midfielder': 1.5, 'Midfield': 1.4,
+    'Winger': 1.3, 'Wing-Back': 1.2,
+    'Forward': 0.9, 'Centre-Forward': 0.8,
+    'Left-Back': 0.8, 'Right-Back': 0.8,
+    'Centre-Back': 0.6, 'Back': 0.7, 'Defender': 0.7,
+    'Goalkeeper': 0.05
+}
+
+# Position-specific AGS modifiers
+AGS_POSITIONAL_MODIFIERS = {
+    'Forward': 1.2, 'Centre-Forward': 1.3,
+    'Winger': 1.1, 'Attacking Midfielder': 1.0, 'Midfield': 0.8, 'Midfielder': 0.8,
+    'Wing-Back': 0.6, 'Left-Back': 0.4, 'Right-Back': 0.4,
+    'Centre-Back': 0.3, 'Back': 0.35, 'Defender': 0.35,
+    'Goalkeeper': 0.02
+}
+
+DEFAULT_AAS_MODIFIER = 1.0
+DEFAULT_AGS_MODIFIER = 1.0
+
+DEFENSIVE_POSITIONS = ["Goalkeeper", "Centre-Back", "Left-Back", "Right-Back", "Sweeper", "Defender"]
+OUTRIGHT_COMPONENT_WEIGHTS = {'base_strength_from_odds': 0.70, 'venue_impact': 0.20, 'fatigue': 0.10}
+AVERAGE_TOTAL_GOALS_IN_MATCH = 2.7
+MAX_POISSON_GOALS = 7
+
+DEFAULT_TEAM_DETAIL = {"team_id": "N/A_ID", "short_code": "N/A", "api_id": None, "image": "https://example.com/default_image.png"}
 for _team_name_detail_key, _details_val in TEAM_DETAILS.items():
     if _team_name_detail_key not in TEAM_NAME_MAPPING:
         TEAM_NAME_MAPPING[_team_name_detail_key] = _team_name_detail_key
     if isinstance(_details_val.get("api_id"), int):
          TEAM_NAME_MAPPING[str(_details_val["api_id"])] = _team_name_detail_key
 
-# --- Other Constants and Global Data Structures ---
-DEFENSIVE_POSITIONS = ["Goalkeeper", "Centre-Back", "Left-Back", "Right-Back", "Sweeper", "Defender"]
-OUTRIGHT_COMPONENT_WEIGHTS = {'base_strength_from_odds': 0.70, 'venue_impact': 0.20, 'fatigue': 0.10}
-AVERAGE_TOTAL_GOALS_IN_MATCH = 2.7
-MAX_POISSON_GOALS = 7
-
+# Hardcoded Raw Data
 FULL_FIXTURE_DATA_RAW = """fixture_id	stage_name	starting_at	home_team_name	away_team_name	group_name	home_team_id	away_team_id	GW
 67cfda1c36a76522457ee1b9	Group Stage	2025-06-15 0:00:00	Al Ahly	Inter Miami	Group A	67b8be4865db8d4ef5b05df6	67b8be4e65db8d4ef5b05f49	1
 67cfda6736a76522457eeda4	Group Stage	2025-06-15 16:00:00	FC Bayern München	Auckland City	Group C	67b8be4865db8d4ef5b05dfd	67b8be4965db8d4ef5b05e3d	1
@@ -235,15 +270,15 @@ USER_PROVIDED_FIXTURES_WITH_STADIUMS_RAW = [
 ]
 
 # Global Data Structures
-FIXTURE_LOOKUP_MAP: Dict[FrozenSet[str], Dict[str, Any]] = {} 
-TEAM_CS_PERCENTAGES_CACHE: Dict[str, Dict[str, float]] = {} 
+FIXTURE_LOOKUP_MAP: Dict[FrozenSet[str], Dict[str, Any]] = {}
+TEAM_CS_PERCENTAGES_CACHE: Dict[str, Dict[str, float]] = {}
 FIXTURE_ID_TO_CS_CACHE_KEY_MAP: Dict[str, str] = {}
 FIXTURE_ID_GW_LOOKUP: Dict[Tuple[str, str, str], Dict[str, str]] = {}
 ALL_BASE_FIXTURES: List[Dict[str, Any]] = []
 PLAYER_STATS_DF: Optional[pd.DataFrame] = None
 TEAM_SEASON_STATS: Dict[str, Dict[str, float]] = {}
 CS_ODDS_LOOKUP: Dict[Tuple[str, str, str], Dict[str, float]] = {}
-DIRECT_AGS_DATA_FROM_JSON: Optional[Dict[str, Any]] = None
+AGS_ODDS_LOOKUP: Dict[FrozenSet[str], List[Dict[str, Any]]] = {}
 TEAM_STRENGTH_METRICS: Dict[str, float] = {}
 MATCH_HISTORY_CONTEXTS: List[Dict[str, Optional[Dict[str, Any]]]] = []
 FIXTURE_FDR_METRICS_CACHE: Dict[str, Dict[str, float]] = {}
@@ -286,7 +321,114 @@ class MatchWithPlayerCombinedStats(BaseModel):
     xg_source: Optional[str] = None
     players: List[PlayerCombinedStats]
 
-# --- Helper Functions ---
+# --- Enhanced Helper Functions ---
+def get_position_modifier(position: Optional[str], modifier_dict: Dict[str, float], default: float) -> float:
+    """Get position modifier with better matching logic"""
+    if not position or not isinstance(position, str):
+        return default
+    
+    position_lower = position.lower()
+    
+    # Direct matches first
+    for pos_key, modifier in modifier_dict.items():
+        if pos_key.lower() == position_lower:
+            return modifier
+    
+    # Partial matches
+    for pos_key, modifier in modifier_dict.items():
+        if pos_key.lower() in position_lower:
+            return modifier
+    
+    return default
+
+def apply_probability_caps(prob: float, prob_type: str) -> float:
+    """Apply realistic probability caps"""
+    if prob_type == 'ags':
+        return np.clip(prob, PROBABILITY_CAPS['ags_min'], PROBABILITY_CAPS['ags_max'])
+    elif prob_type == 'aas':
+        return np.clip(prob, PROBABILITY_CAPS['aas_min'], PROBABILITY_CAPS['aas_max'])
+    elif prob_type == 'cs':
+        return np.clip(prob, PROBABILITY_CAPS['cs_min'], PROBABILITY_CAPS['cs_max'])
+    return prob
+
+def calculate_realistic_team_xg_share(player_goals: float, team_goals: float, 
+                                    position: Optional[str], team_xg: float) -> float:
+    """Calculate more realistic individual xG based on position and historical performance"""
+    if team_goals <= 0 or player_goals < 0:
+        return 0.0
+    
+    # Base share from historical performance
+    base_share = player_goals / team_goals
+    
+    # Apply position-based adjustment
+    position_modifier = get_position_modifier(position, AGS_POSITIONAL_MODIFIERS, DEFAULT_AGS_MODIFIER)
+    
+    # Adjust the share based on position
+    adjusted_share = base_share * position_modifier
+    
+    # Cap the share to prevent unrealistic individual xG
+    max_share = 0.4  # No player should have more than 40% of team's xG
+    adjusted_share = min(adjusted_share, max_share)
+    
+    return adjusted_share * team_xg
+
+def calculate_realistic_team_xa_share(player_assists: float, team_assists: float, 
+                                    position: Optional[str], team_xg: float) -> float:
+    """Calculate more realistic individual xA (expected assists)"""
+    if team_assists <= 0 or player_assists < 0:
+        return 0.0
+    
+    base_share = player_assists / team_assists
+    position_modifier = get_position_modifier(position, AAS_POSITIONAL_MODIFIERS, DEFAULT_AAS_MODIFIER)
+    
+    adjusted_share = base_share * position_modifier
+    
+    # Cap assists share
+    max_share = 0.35  # No player should have more than 35% of team's assists
+    adjusted_share = min(adjusted_share, max_share)
+    
+    # Use team_xg as proxy for creating chances (assists correlate with attacking play)
+    return adjusted_share * team_xg * 0.8  # Assists slightly less likely than goals
+
+def validate_and_adjust_xg(home_xg: float, away_xg: float, 
+                          expected_total: float = 2.7) -> Tuple[float, float]:
+    """Validate and adjust xG values to be more realistic"""
+    total_xg = home_xg + away_xg
+    
+    # If total is too high or too low, normalize
+    if total_xg > expected_total * 1.5 or total_xg < expected_total * 0.5:
+        ratio = expected_total / total_xg if total_xg > 0 else 0.5
+        home_xg *= ratio
+        away_xg *= ratio
+    
+    # Ensure minimum values
+    home_xg = max(home_xg, 0.3)
+    away_xg = max(away_xg, 0.3)
+    
+    return round(home_xg, 3), round(away_xg, 3)
+
+def calculate_realistic_clean_sheet_probability(
+    team_cs_percentage: float, 
+    player_position: Optional[str],
+    team_xg_against: float
+) -> float:
+    """Calculate more realistic clean sheet probabilities"""
+    if not player_position or not any(
+        def_pos.lower() in str(player_position).lower() 
+        for def_pos in DEFENSIVE_POSITIONS
+    ):
+        return 0.0
+    
+    # Base probability from odds
+    base_cs_prob = team_cs_percentage
+    
+    # Adjust based on expected goals against (lower xGA = higher CS chance)
+    if team_xg_against > 0:
+        xg_adjustment = max(0.7, min(1.3, 2.0 / team_xg_against))
+        base_cs_prob *= xg_adjustment
+    
+    return apply_probability_caps(base_cs_prob, 'cs')
+
 def load_json_data(file_path: str) -> Optional[Dict]:
     if not os.path.exists(file_path):
         print(f"ERROR: Data file '{file_path}' not found.")
@@ -296,8 +438,6 @@ def load_json_data(file_path: str) -> Optional[Dict]:
     try:
         with open(file_path, 'r', encoding='utf-8') as f: data = json.load(f)
         return data
-    except FileNotFoundError: raise HTTPException(status_code=500, detail=f"Data file '{file_path}' not found.")
-    except json.JSONDecodeError: raise HTTPException(status_code=500, detail=f"Error decoding JSON: '{file_path}'.")
     except Exception as e: raise HTTPException(status_code=500, detail=f"Error loading '{file_path}': {e}")
 
 def get_canonical_team_name(name_from_source: Any, mapping: Dict[str, str]) -> str:
@@ -313,7 +453,7 @@ def get_canonical_team_name(name_from_source: Any, mapping: Dict[str, str]) -> s
     temp_name_norm = name_lower
     for suffix in suffixes_to_remove: temp_name_norm = temp_name_norm.replace(suffix, "")
     for punc in punctuation_to_remove: temp_name_norm = temp_name_norm.replace(punc, "")
-    temp_name_norm = temp_name_norm.strip().replace(" ", "") 
+    temp_name_norm = temp_name_norm.strip().replace(" ", "")
     for map_key, canonical_val in mapping.items():
         map_key_norm = map_key.lower()
         for suffix in suffixes_to_remove: map_key_norm = map_key_norm.replace(suffix, "")
@@ -331,7 +471,7 @@ def get_canonical_team_name(name_from_source: Any, mapping: Dict[str, str]) -> s
 
 def load_and_prepare_fixture_data_for_app1_lookup(raw_data_string: str, team_mapping: Dict[str, str]):
     global FIXTURE_LOOKUP_MAP
-    FIXTURE_LOOKUP_MAP = {} 
+    FIXTURE_LOOKUP_MAP = {}
     data_io = io.StringIO(raw_data_string)
     reader = csv.reader(data_io, delimiter='\t')
     try: header = next(reader)
@@ -345,9 +485,7 @@ def load_and_prepare_fixture_data_for_app1_lookup(raw_data_string: str, team_map
         fixture_datetime_str = row[2].strip()
         fixture_date_fixture = fixture_datetime_str.split(" ")[0] if fixture_datetime_str else "N/A_Date"
         group_fixture = row[5].strip()
-        if not home_team_original_fixture or not away_team_original_fixture or \
-           "Winner Match" in home_team_original_fixture or "1st Group" in home_team_original_fixture or \
-           "Winner Match" in away_team_original_fixture or "2nd Group" in away_team_original_fixture:
+        if not home_team_original_fixture or not away_team_original_fixture or "Winner Match" in home_team_original_fixture or "1st Group" in home_team_original_fixture or "Winner Match" in away_team_original_fixture or "2nd Group" in away_team_original_fixture:
             continue
         canonical_home_fixture = get_canonical_team_name(home_team_original_fixture, team_mapping)
         canonical_away_fixture = get_canonical_team_name(away_team_original_fixture, team_mapping)
@@ -355,7 +493,7 @@ def load_and_prepare_fixture_data_for_app1_lookup(raw_data_string: str, team_map
         map_key = frozenset({canonical_home_fixture, canonical_away_fixture})
         fixture_details_to_store = {
             "fixture_id": fixture_id_fixture, "GW": gw_fixture, "fixture_date": fixture_date_fixture,
-            "group": group_fixture, "_fixture_original_home": home_team_original_fixture, 
+            "group": group_fixture, "_fixture_original_home": home_team_original_fixture,
             "_fixture_original_away": away_team_original_fixture, "_canonical_home_fixture": canonical_home_fixture,
             "_canonical_away_fixture": canonical_away_fixture,
         }
@@ -367,12 +505,16 @@ def _populate_fixture_id_gw_lookup_for_app2(raw_data_string: str, team_mapping: 
     FIXTURE_ID_GW_LOOKUP = {}
     data_io = io.StringIO(raw_data_string)
     reader = csv.reader(data_io, delimiter='\t')
-    try: header = next(reader)
-    except StopIteration: print("ERROR: Fixture ID/GW data string for App2 is empty."); return
+    try:
+        header = next(reader)
+    except StopIteration:
+        print("ERROR: Fixture ID/GW data string for App2 is empty.")
+        return
     col_indices = {name.strip(): i for i, name in enumerate(header)}
     required_cols = ['fixture_id', 'home_team_name', 'away_team_name', 'starting_at', 'GW']
     if not all(col in col_indices for col in required_cols):
-        print(f"ERROR: Missing required columns in fixture data for App2 ID/GW lookup. Expected: {required_cols}, Got: {header}"); return
+        print(f"ERROR: Missing required columns in fixture data for App2 ID/GW lookup. Expected: {required_cols}, Got: {header}")
+        return
     for i, row in enumerate(reader):
         if len(row) < len(header): continue
         try:
@@ -387,9 +529,10 @@ def _populate_fixture_id_gw_lookup_for_app2(raw_data_string: str, team_mapping: 
             canonical_home = get_canonical_team_name(home_team_original, team_mapping)
             canonical_away = get_canonical_team_name(away_team_original, team_mapping)
             if "N/A" in canonical_home or "N/A" in canonical_away or canonical_home.startswith("N/A_") or canonical_away.startswith("N/A_"): continue
-            lookup_key = (canonical_home, canonical_away, fixture_date_str) 
+            lookup_key = (canonical_home, canonical_away, fixture_date_str)
             FIXTURE_ID_GW_LOOKUP[lookup_key] = {"fixture_id": fixture_id_fixture, "GW": gw_fixture}
-        except Exception as e: print(f"ERROR processing App2 fixture row {i+2} for ID/GW lookup: {row} - {e}")
+        except Exception as e:
+            print(f"ERROR processing App2 fixture row {i+2} for ID/GW lookup: {row} - {e}")
     print(f"INFO: App2 Fixture ID/GW lookup populated with {len(FIXTURE_ID_GW_LOOKUP)} entries.")
 
 def create_base_fixtures_with_canonical_names_from_hardcoded_for_app2(
@@ -405,20 +548,16 @@ def create_base_fixtures_with_canonical_names_from_hardcoded_for_app2(
         home_c, away_c = get_canonical_team_name(home_raw, team_map), get_canonical_team_name(away_raw, team_map)
         date_s, time_s = fix_data.get('date'), fix_data.get('time')
         if not all([home_c, away_c, date_s, time_s]) or home_c == away_c or home_c.startswith("N/A_") or away_c.startswith("N/A_"): continue
-        
         try:
-            time_s_corrected = time_s 
+            time_s_corrected = time_s
             if time_s == "24:00":
                 dt_obj = datetime_cls.strptime(date_s, '%Y-%m-%d') + timedelta(days=1)
-                time_s_corrected = "12:00 AM" 
-            else: # Handles "12:00 AM", "01:00 PM", etc.
-                dt_obj = datetime_cls.strptime(f"{date_s} {time_s}", '%Y-%m-%d %I:%M %p')
-            
+                time_s_corrected = "12:00 AM"
+            else: dt_obj = datetime_cls.strptime(f"{date_s} {time_s}", '%Y-%m-%d %I:%M %p')
             date_obj_only = dt_obj.date()
-
             fixture_extra_info = fixture_id_gw_provider.get(
-                (home_c, away_c, date_s), 
-                fixture_id_gw_provider.get((away_c, home_c, date_s), 
+                (home_c, away_c, date_s),
+                fixture_id_gw_provider.get((away_c, home_c, date_s),
                 {"fixture_id": f"NO_ID_FOR_{home_c}_vs_{away_c}_{date_s}", "GW": "N/A_GW"})
             )
             processed_fixtures_temp.append({
@@ -428,7 +567,6 @@ def create_base_fixtures_with_canonical_names_from_hardcoded_for_app2(
                 'fixture_id': fixture_extra_info['fixture_id'], 'GW': fixture_extra_info['GW']
             })
         except ValueError as e: print(f"ERROR parsing fixture date/time for {fix_data}: {e}")
-    
     final_fixtures_list, final_unique_keys = [], set()
     for fix in sorted(processed_fixtures_temp, key=lambda x: x['datetime_obj']):
         key_primary, key_fallback = fix['fixture_id'], (fix['home_team_canonical'], fix['away_team_canonical'], fix['date_str'])
@@ -447,16 +585,14 @@ def parse_html_for_odds(file_path):
     if not os.path.exists(file_path): return teams_data
     try:
         with open(file_path, 'r', encoding='utf-8') as f: html_content = f.read()
-        soup = BeautifulSoup(html_content, 'html.parser') # Changed to html.parser
+        soup = BeautifulSoup(html_content, 'html.parser')
         for row in soup.select('div[data-testid="outrights-table-row"]'):
             team_name_el = row.select_one('div[data-testid="outrights-participant-name"] p')
             odds_el = row.select_one('div[data-testid="add-to-coupon-button"] p')
             if team_name_el and odds_el:
                 team_name, odds_text = team_name_el.get_text(strip=True), odds_el.get_text(strip=True)
                 try:
-                    odds_val = float(odds_text[1:]) / 100 + 1 if odds_text.startswith('+') \
-                        else 100 / float(odds_text[1:]) + 1 if odds_text.startswith('-') \
-                        else float(odds_text)
+                    odds_val = float(odds_text[1:]) / 100 + 1 if odds_text.startswith('+') else 100 / float(odds_text[1:]) + 1 if odds_text.startswith('-') else float(odds_text)
                     teams_data.append({'raw_team_name': team_name, 'decimal_odds': odds_val})
                 except ValueError: pass
     except Exception as e: print(f"ERROR parsing HTML outright odds {file_path}: {e}")
@@ -472,9 +608,7 @@ def parse_markdown_for_odds(file_path):
         for raw_name, odds_text in matches:
             try:
                 raw_name, odds_text = raw_name.strip(), odds_text.strip()
-                odds_val = float(odds_text[1:]) / 100 + 1.0 if odds_text.startswith('+') \
-                    else 100.0 / float(odds_text[1:]) + 1.0 if odds_text.startswith('-') \
-                    else None
+                odds_val = float(odds_text[1:]) / 100.0 + 1.0 if odds_text.startswith('+') else 100.0 / float(odds_text[1:]) + 1.0 if odds_text.startswith('-') else None
                 if odds_val: teams_data.append({'raw_team_name': raw_name, 'decimal_odds': odds_val})
             except ValueError: pass
     except Exception as e: print(f"ERROR parsing Markdown outright odds {file_path}: {e}")
@@ -494,15 +628,14 @@ def get_tournament_outright_odds_data_for_app2(html_fp, md_fp, team_map):
 
 def normalize_tournament_implied_probs_for_app2(df_odds, all_fixture_teams_canonical):
     global TEAM_STRENGTH_METRICS
-    TEAM_STRENGTH_METRICS = {}
     default_strength_value = 10.0
     if df_odds.empty or 'implied_prob' not in df_odds.columns:
         for team_c in all_fixture_teams_canonical: TEAM_STRENGTH_METRICS[team_c] = default_strength_value
-        print("WARNING: Outright odds DF empty. Using default strength for App2."); return TEAM_STRENGTH_METRICS
+        print("WARNING: Outright odds DF empty. Using default strength for App2."); return
     df_valid = df_odds[df_odds['implied_prob'] > 0].copy()
     if df_valid.empty:
         for team_c in all_fixture_teams_canonical: TEAM_STRENGTH_METRICS[team_c] = default_strength_value
-        print("WARNING: No valid implied probabilities. Using default strength for App2."); return TEAM_STRENGTH_METRICS
+        print("WARNING: No valid implied probabilities. Using default strength for App2."); return
     total_implied_prob = df_valid['implied_prob'].sum()
     df_valid['norm_prob'] = 0.0 if total_implied_prob < 1e-9 else df_valid['implied_prob'] / total_implied_prob
     max_norm_prob = df_valid['norm_prob'].max()
@@ -511,22 +644,17 @@ def normalize_tournament_implied_probs_for_app2(df_odds, all_fixture_teams_canon
     for team_c in all_fixture_teams_canonical:
         if team_c not in TEAM_STRENGTH_METRICS: TEAM_STRENGTH_METRICS[team_c] = default_strength_value
     print(f"INFO: App2 Team strength metrics calculated for {len(TEAM_STRENGTH_METRICS)} teams.")
-    return TEAM_STRENGTH_METRICS
 
 def create_last_match_dates_history_for_app2(sorted_fixtures_canonical: List[Dict[str,Any]]):
     global MATCH_HISTORY_CONTEXTS
     MATCH_HISTORY_CONTEXTS = []
-    team_last_match_info: Dict[str, Dict[str, Any]] = {
-        team_c: None for fix in sorted_fixtures_canonical 
-        for team_c in (fix['home_team_canonical'], fix['away_team_canonical'])
-    }
+    team_last_match_info: Dict[str, Dict[str, Any]] = { team_c: None for fix in sorted_fixtures_canonical for team_c in (fix['home_team_canonical'], fix['away_team_canonical']) }
     for fixture in sorted_fixtures_canonical:
         home_c, away_c = fixture['home_team_canonical'], fixture['away_team_canonical']
-        current_match_context = {home_c: team_last_match_info[home_c].copy() if team_last_match_info[home_c] else None,
-                                 away_c: team_last_match_info[away_c].copy() if team_last_match_info[away_c] else None}
+        current_match_context = {home_c: team_last_match_info[home_c].copy() if team_last_match_info[home_c] else None, away_c: team_last_match_info[away_c].copy() if team_last_match_info[away_c] else None}
         MATCH_HISTORY_CONTEXTS.append(current_match_context)
         match_date, match_stadium = fixture.get('date_dt'), fixture.get('stadium')
-        if match_date and match_stadium: # match_date is already a date_cls object here
+        if match_date and match_stadium:
             team_last_match_info[home_c] = {'date': match_date, 'venue': match_stadium}
             team_last_match_info[away_c] = {'date': match_date, 'venue': match_stadium}
     print(f"INFO: App2 Match history contexts created for {len(MATCH_HISTORY_CONTEXTS)} fixtures.")
@@ -546,16 +674,10 @@ def get_venue_impact_for_app2(home_team_canonical: str, away_team_canonical: str
 
 def calculate_fatigue_impact_for_app2(team_canonical: str, current_match_date_obj: date_cls, last_match_info: Optional[Dict[str, Any]], cross_country_travel: bool = False):
     if not last_match_info or not last_match_info.get('date'): return -10
-    
-    last_match_date_val = last_match_info['date'] # This should be a date_cls object from create_last_match_dates_history_for_app2
-    
-    # Ensure current_match_date_obj is also a date_cls object (it should be from fixture['date_dt'])
-    if not isinstance(current_match_date_obj, date_cls) or not isinstance(last_match_date_val, date_cls):
-        # print(f"Warning: Invalid date types for fatigue. Current: {type(current_match_date_obj)}, Last: {type(last_match_date_val)}")
-        return 0 
-        
+    last_match_date_val = last_match_info['date']
+    if not isinstance(current_match_date_obj, date_cls) or not isinstance(last_match_date_val, date_cls): return 0
     rest_days = (current_match_date_obj - last_match_date_val).days
-    if rest_days < 0 : return 15 
+    if rest_days < 0 : return 15
     fatigue_score = 15 if rest_days < 2 else 8 if rest_days == 2 else 0 if rest_days < 5 else -5 if rest_days < 7 else -10
     return fatigue_score + (5 if cross_country_travel else 0)
 
@@ -563,38 +685,27 @@ def calculate_outright_fdr_components_for_app2(fixture: Dict[str, Any], team_str
     global FIXTURE_FDR_METRICS_CACHE
     fixture_id = fixture.get('fixture_id', 'unknown_fixture')
     if fixture_id in FIXTURE_FDR_METRICS_CACHE: return FIXTURE_FDR_METRICS_CACHE[fixture_id]
-    
     home_c, away_c = fixture['home_team_canonical'], fixture['away_team_canonical']
-    date_dt_obj = fixture.get('date_dt') # This is a date_cls object
+    date_dt_obj = fixture.get('date_dt')
     stadium = fixture.get('stadium')
-
-    if not date_dt_obj or not isinstance(date_dt_obj, date_cls): # Check type explicitly
+    if not date_dt_obj or not isinstance(date_dt_obj, date_cls):
         FIXTURE_FDR_METRICS_CACHE[fixture_id] = {'home_fdr_outright': 50.0, 'away_fdr_outright': 50.0}; return FIXTURE_FDR_METRICS_CACHE[fixture_id]
-    
     h_base_fdr_component, a_base_fdr_component = team_strengths_map.get(away_c, 10.0), team_strengths_map.get(home_c, 10.0)
     ven_h_impact, ven_a_impact = get_venue_impact_for_app2(home_c, away_c, stadium)
-    
     east_stadiums_lower = {s.lower().strip() for s in ["Hard Rock Stadium, Miami Gardens, FL", "MetLife Stadium, East Rutherford, NJ", "Lincoln Financial Field, Philadelphia, PA", "GEODIS Park, Nashville, TN", "Bank of America Stadium, Charlotte, NC", "Mercedes-Benz Stadium, Atlanta, GA", "Inter&Co Stadium, Orlando, FL", "Audi Field, Washington, D.C.", "Camping World Stadium, Orlando, FL", "TQL Stadium, Cincinnati, OH"]}
     west_stadiums_lower = {s.lower().strip() for s in ["Lumen Field, Seattle, WA", "Rose Bowl Stadium, Pasadena, CA"]}
     current_stadium_lower = stadium.lower().strip() if stadium else ""
-    
     last_match_home_info = match_history_for_fixture.get(home_c) if match_history_for_fixture else None
     last_match_away_info = match_history_for_fixture.get(away_c) if match_history_for_fixture else None
-    
-    home_travel = last_match_home_info and last_match_home_info.get('venue') and current_stadium_lower and \
-                  ((current_stadium_lower in east_stadiums_lower and last_match_home_info['venue'].lower().strip() in west_stadiums_lower) or \
-                   (current_stadium_lower in west_stadiums_lower and last_match_home_info['venue'].lower().strip() in east_stadiums_lower))
-    away_travel = last_match_away_info and last_match_away_info.get('venue') and current_stadium_lower and \
-                  ((current_stadium_lower in east_stadiums_lower and last_match_away_info['venue'].lower().strip() in west_stadiums_lower) or \
-                   (current_stadium_lower in west_stadiums_lower and last_match_away_info['venue'].lower().strip() in east_stadiums_lower))
-
+    home_travel = last_match_home_info and last_match_home_info.get('venue') and current_stadium_lower and ((current_stadium_lower in east_stadiums_lower and last_match_home_info['venue'].lower().strip() in west_stadiums_lower) or (current_stadium_lower in west_stadiums_lower and last_match_home_info['venue'].lower().strip() in east_stadiums_lower))
+    away_travel = last_match_away_info and last_match_away_info.get('venue') and current_stadium_lower and ((current_stadium_lower in east_stadiums_lower and last_match_away_info['venue'].lower().strip() in west_stadiums_lower) or (current_stadium_lower in west_stadiums_lower and last_match_away_info['venue'].lower().strip() in east_stadiums_lower))
     fat_h_impact = calculate_fatigue_impact_for_app2(home_c, date_dt_obj, last_match_home_info, home_travel)
     fat_a_impact = calculate_fatigue_impact_for_app2(away_c, date_dt_obj, last_match_away_info, away_travel)
-    
     home_fdr_raw = (OUTRIGHT_COMPONENT_WEIGHTS['base_strength_from_odds'] * h_base_fdr_component + OUTRIGHT_COMPONENT_WEIGHTS['venue_impact'] * ven_h_impact + OUTRIGHT_COMPONENT_WEIGHTS['fatigue'] * fat_h_impact)
     away_fdr_raw = (OUTRIGHT_COMPONENT_WEIGHTS['base_strength_from_odds'] * a_base_fdr_component + OUTRIGHT_COMPONENT_WEIGHTS['venue_impact'] * ven_a_impact + OUTRIGHT_COMPONENT_WEIGHTS['fatigue'] * fat_a_impact)
-    
-    result = {'home_fdr_outright': round(np.clip(home_fdr_raw / 1.5 + 25, 1, 99),1), 'away_fdr_outright': round(np.clip(away_fdr_raw / 1.5 + 25, 1, 99),1)}
+    home_fdr_scaled = np.clip(home_fdr_raw / 1.5 + 25, 1, 99)
+    away_fdr_scaled = np.clip(away_fdr_raw / 1.5 + 25, 1, 99)
+    result = {'home_fdr_outright': round(home_fdr_scaled, 1), 'away_fdr_outright': round(away_fdr_scaled, 1)}
     FIXTURE_FDR_METRICS_CACHE[fixture_id] = result; return result
 
 def estimate_xg_from_fdr_outrights_for_app2(h_fdr: Optional[float], a_fdr: Optional[float], avg_goals: float = AVERAGE_TOTAL_GOALS_IN_MATCH) -> Tuple[float, float]:
@@ -645,27 +756,106 @@ def calculate_xg_from_cs_odds_for_app2(cs_odds_dict: Dict[str, Any]) -> Tuple[Op
         away_xg_calc += item['a_goals'] * norm_prob
     return round(home_xg_calc, 3), round(away_xg_calc, 3)
 
-def get_player_direct_ags_prob_for_app2(player_name_to_match: str, excel_player_id: Optional[str], excel_player_api_id: Optional[str], player_team_canonical: str, match_home_canonical: str, match_away_canonical: str, match_date_str: str, direct_ags_json_data: Optional[Dict[str, Any]]) -> Optional[float]:
-    if not direct_ags_json_data or 'matches' not in direct_ags_json_data: return None
-    for match_entry in direct_ags_json_data['matches']:
-        entry_home_c = get_canonical_team_name(match_entry.get('home_team', ''), TEAM_NAME_MAPPING)
-        entry_away_c = get_canonical_team_name(match_entry.get('away_team', ''), TEAM_NAME_MAPPING)
-        if frozenset({entry_home_c, entry_away_c}) == frozenset({match_home_canonical, match_away_canonical}) and match_entry.get('date') == match_date_str:
-            for ags_player_data in match_entry.get('players', []):
-                ags_player_name = str(ags_player_data.get('player', '')).strip()
-                ags_player_team_c = get_canonical_team_name(str(ags_player_data.get('team', '')).strip(), TEAM_NAME_MAPPING)
-                ags_player_id_json = str(ags_player_data.get('player_id')) if pd.notna(ags_player_data.get('player_id')) else None
-                ags_player_api_id_json = str(ags_player_data.get('player_api_id')) if pd.notna(ags_player_data.get('player_api_id')) else None
-                match_found = (excel_player_id and ags_player_id_json and excel_player_id == ags_player_id_json and ags_player_team_c == player_team_canonical) or \
-                              (excel_player_api_id and ags_player_api_id_json and excel_player_api_id == ags_player_api_id_json and ags_player_team_c == player_team_canonical) or \
-                              (ags_player_name.lower() == player_name_to_match.lower() and ags_player_team_c == player_team_canonical)
-                if match_found:
-                    try: 
-                        odds = float(ags_player_data.get('odds')); return 1.0 / odds if odds > 1.0 else None
-                    except (ValueError, TypeError): continue
+def get_player_direct_ags_prob_for_app2(player_name_to_match: str, excel_player_id: Optional[str], excel_player_api_id: Optional[str], player_team_canonical: str, match_home_canonical: str, match_away_canonical: str) -> Optional[float]:
+    global AGS_ODDS_LOOKUP
+    lookup_key = frozenset({match_home_canonical, match_away_canonical})
+
+    if lookup_key not in AGS_ODDS_LOOKUP:
+        return None
+
+    for ags_player_data in AGS_ODDS_LOOKUP[lookup_key]:
+        ags_player_name = str(ags_player_data.get('player', '')).strip()
+        ags_player_team_c = get_canonical_team_name(str(ags_player_data.get('team', '')).strip(), TEAM_NAME_MAPPING)
+        ags_player_id_json = str(ags_player_data.get('player_id')) if pd.notna(ags_player_data.get('player_id')) else None
+        ags_player_api_id_json = str(ags_player_data.get('player_api_id')) if pd.notna(ags_player_data.get('player_api_id')) else None
+        
+        match_found = (
+            (excel_player_id and ags_player_id_json and excel_player_id == ags_player_id_json) or
+            (excel_player_api_id and ags_player_api_id_json and excel_player_api_id == ags_player_api_id_json) or
+            (ags_player_name.lower() == player_name_to_match.lower() and ags_player_team_c == player_team_canonical)
+        )
+
+        if match_found:
+            try:
+                odds = float(ags_player_data.get('odds'))
+                return 1.0 / odds if odds > 1.0 else None
+            except (ValueError, TypeError, ZeroDivisionError): continue
     return None
 
-# --- Calculation Logic Functions ---
+# --- Enhanced Main Calculation Function ---
+def _calculate_player_probabilities(
+    player_name: str, p_pos: Optional[str], p_id_excel: Optional[str], p_api_id_excel: Optional[str],
+    team_canon: str, p_goals: float, p_assists: float, team_goals: float, team_assists: float,
+    team_match_xg: float, match_home_c: str, match_away_c: str, xg_src_str: str
+) -> Tuple[float, str, float, str]:
+    """
+    Enhanced probability calculation with hybrid model, realistic caps, and position-aware logic
+    """
+    
+    # === ANYTIME GOALSCORER PROBABILITY ===
+    ags_prob_0_1, ags_src = 0.0, "not_set"
+    
+    # Get direct odds probability
+    direct_ags_prob = get_player_direct_ags_prob_for_app2(
+        player_name, p_id_excel, p_api_id_excel, team_canon, match_home_c, match_away_c
+    )
+    
+    # Calculate enhanced Poisson-based probability
+    individual_xg = calculate_realistic_team_xg_share(p_goals, team_goals, p_pos, team_match_xg)
+    poisson_ags_prob = 0.0
+    if individual_xg > 0:
+        poisson_ags_prob = 1.0 - poisson.pmf(0, individual_xg)
+    
+    # Apply hybrid model with enhanced logic
+    if direct_ags_prob is not None and direct_ags_prob > 0:
+        # Cap the direct odds probability first to prevent unrealistic values
+        capped_direct_prob = min(direct_ags_prob, PROBABILITY_CAPS['ags_max'] / 100)
+        
+        if poisson_ags_prob > 0:
+            # Hybrid of both methods - more balanced approach
+            ags_prob_0_1 = (
+                AGS_HYBRID_MODEL_WEIGHTS['direct_odds'] * capped_direct_prob +
+                AGS_HYBRID_MODEL_WEIGHTS['poisson_model'] * poisson_ags_prob
+            )
+            ags_src = f"hybrid_model_from_{xg_src_str}"
+        else:
+            # Only direct odds available, but capped
+            ags_prob_0_1 = capped_direct_prob
+            ags_src = "direct_odds_capped"
+    elif poisson_ags_prob > 0:
+        # Only Poisson model available
+        ags_prob_0_1 = poisson_ags_prob
+        ags_src = f"enhanced_poisson_from_{xg_src_str}"
+    else:
+        # No data available
+        ags_prob_0_1 = 0.0
+        ags_src = f"no_data_available_{xg_src_str}"
+    
+    # Final AGS probability capping and conversion to percentage
+    ags_prob_percentage = apply_probability_caps(ags_prob_0_1 * 100, 'ags')
+    
+    # === ANYTIME ASSIST PROBABILITY ===
+    individual_xa = calculate_realistic_team_xa_share(p_assists, team_assists, p_pos, team_match_xg)
+    aas_prob_0_1 = 0.0
+    
+    if individual_xa > 0:
+        aas_prob_0_1 = 1.0 - poisson.pmf(0, individual_xa)
+    
+    aas_src = f"enhanced_poisson_from_{xg_src_str}"
+    if p_assists == 0 or aas_prob_0_1 == 0:
+        aas_src += "_no_season_assists_or_low_prob"
+    
+    # Apply AAS probability capping
+    aas_prob_percentage = apply_probability_caps(aas_prob_0_1 * 100, 'aas')
+    
+    return (
+        round(ags_prob_percentage, 2), 
+        ags_src, 
+        round(aas_prob_percentage, 2), 
+        aas_src
+    )
+
+# --- Main Calculation Functions ---
 def calculate_team_cs_percentages_logic(correct_score_data: Dict[str, Any], team_mapping: Dict[str, str], team_details_map: Dict[str, Dict[str, Any]], fixture_lookup: Dict[FrozenSet[str], Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not correct_score_data or 'matches' not in correct_score_data: return []
     team_clean_sheet_rows = []
@@ -689,7 +879,7 @@ def calculate_team_cs_percentages_logic(correct_score_data: Dict[str, Any], team
                 odd_val = float(odd_val_any)
                 implied_prob = 1.0 / odd_val if odd_val > 0 else 0.0
                 sum_probs_all += implied_prob
-                s_parts = str(score).split('-'); 
+                s_parts = str(score).split('-')
                 if len(s_parts) != 2: continue
                 h_goals, a_goals = int(s_parts[0]), int(s_parts[1])
                 if a_goals == 0: sum_probs_home_cs += implied_prob
@@ -741,14 +931,11 @@ def calculate_player_clean_sheets_logic(anytime_goalscorer_data_app1: Dict[str, 
         if not ag_home_orig or not ag_away_orig or not ag_date: continue
         ag_home_canon, ag_away_canon = get_canonical_team_name(ag_home_orig, team_mapping), get_canonical_team_name(ag_away_orig, team_mapping)
         if ag_home_canon.startswith("N/A_") or ag_away_canon.startswith("N/A_"): continue
-        
         target_match_identifier_in_cache = None; home_cs_perc, away_cs_perc = 0.0, 0.0
         potential_keys = [f"{ag_home_orig} vs {ag_away_orig} ({ag_date} at {ag_stadium})", f"{ag_away_orig} vs {ag_home_orig} ({ag_date} at {ag_stadium})"]
-        
         current_fixture_id, current_gw = "N/A_FID", "N/A_GW"
         fixture_data_ag = fixture_lookup.get(frozenset({ag_home_canon, ag_away_canon}))
         if fixture_data_ag: current_fixture_id, current_gw = fixture_data_ag.get("fixture_id", "N/A_FID"), fixture_data_ag.get("GW", "N/A_GW")
-
         found_cs = False
         for pk in potential_keys:
             if pk in team_cs_cache:
@@ -756,7 +943,7 @@ def calculate_player_clean_sheets_logic(anytime_goalscorer_data_app1: Dict[str, 
                 cs_data = team_cs_cache[pk]
                 home_cs_perc, away_cs_perc = cs_data.get(ag_home_canon, 0.0), cs_data.get(ag_away_canon, 0.0)
                 found_cs = True; break
-        if not found_cs: 
+        if not found_cs:
             for cs_key, cs_match_data in team_cs_cache.items():
                 try:
                     parts = cs_key.split(" ("); cs_teams_part = parts[0]; cs_date_stadium_part = parts[1][:-1]; cs_date_from_key = cs_date_stadium_part.split(" at ")[0]
@@ -769,12 +956,9 @@ def calculate_player_clean_sheets_logic(anytime_goalscorer_data_app1: Dict[str, 
                         home_cs_perc, away_cs_perc = cs_match_data.get(ag_home_canon, 0.0), cs_match_data.get(ag_away_canon, 0.0)
                         found_cs = True; break
                 except Exception: continue
-        
-        if not target_match_identifier_in_cache: target_match_identifier_in_cache = potential_keys[0]
-        
+        if not target_match_identifier_in_cache: target_match_identifier_in_cache = potential_keys[0]  
         if target_match_identifier_in_cache not in matches_with_players_dict:
             matches_with_players_dict[target_match_identifier_in_cache] = {"match_identifier": target_match_identifier_in_cache, "fixture_id": current_fixture_id, "GW": current_gw, "defensive_players": []}
-
         for p_data in ag_players:
             p_name, p_team_orig, p_pos = p_data.get("player"), p_data.get("team"), p_data.get("position")
             if not p_name or not p_team_orig or not p_pos or p_pos not in DEFENSIVE_POSITIONS: continue
@@ -786,24 +970,10 @@ def calculate_player_clean_sheets_logic(anytime_goalscorer_data_app1: Dict[str, 
             matches_with_players_dict[target_match_identifier_in_cache]["defensive_players"].append(player_info)
     return list(matches_with_players_dict.values())
 
-def _calculate_player_specific_probabilities_for_app2(player_name: str, p_id_excel: Optional[str], p_api_id_excel: Optional[str], team_canon: str, p_goals: float, p_assists: float, team_goals: float, team_assists: float, team_match_xg: float, match_home_c: str, match_away_c: str, match_date_s: str, direct_ags_src: Optional[Dict[str,Any]], xg_src_str: str) -> Tuple[float, str, float, str]:
-    ags_prob_0_1, aas_prob_0_1 = 0.0, 0.0; ags_src, aas_src = "not_set", "not_set"
-    direct_ags_prob = get_player_direct_ags_prob_for_app2(player_name, p_id_excel, p_api_id_excel, team_canon, match_home_c, match_away_c, match_date_s, direct_ags_src)
-    if direct_ags_prob is not None:
-        ags_prob_0_1, ags_src = direct_ags_prob, "direct_odds"
-    else:
-        if team_goals > 0 and p_goals >= 0 and team_match_xg > 0:
-            p_ind_xg = (p_goals / team_goals) * team_match_xg
-            if p_ind_xg > 0: ags_prob_0_1 = 1.0 - poisson.pmf(0, p_ind_xg)
-        ags_src = f"estimated_poisson_from_{xg_src_str}" + ("_low_prob" if p_goals > 0 and ags_prob_0_1 == 0 else "_no_season_goals_or_low_xg" if ags_prob_0_1 == 0 else "")
-    if team_assists > 0 and p_assists >= 0 and team_match_xg > 0:
-        p_ind_xa = (p_assists / team_assists) * team_match_xg
-        if p_ind_xa > 0: aas_prob_0_1 = 1.0 - poisson.pmf(0, p_ind_xa)
-    aas_src = f"estimated_poisson_from_{xg_src_str}" + ("_low_prob" if p_assists > 0 and aas_prob_0_1 == 0 else "_no_season_assists_or_low_xg" if aas_prob_0_1 == 0 else "")
-    return round(ags_prob_0_1 * 100.0, 2), ags_src, round(aas_prob_0_1 * 100.0, 2), aas_src
-
 def calculate_all_matches_combined_stats_with_cs() -> List[Dict[str, Any]]:
-    if PLAYER_STATS_DF is None or not ALL_BASE_FIXTURES: print("ERROR (CombinedCalc): Player stats DF or base fixtures not loaded."); return []
+    if not ALL_BASE_FIXTURES or PLAYER_STATS_DF is None:
+        print("ERROR (CombinedCalc): Player stats DF or base fixtures not loaded.")
+        return []
     all_match_output_stats: List[Dict[str, Any]] = []
     for fixture_index, fixture in enumerate(ALL_BASE_FIXTURES):
         home_c, away_c, date_s, fixture_id, gw = fixture['home_team_canonical'], fixture['away_team_canonical'], fixture['date_str'], fixture['fixture_id'], fixture['GW']
@@ -819,97 +989,122 @@ def calculate_all_matches_combined_stats_with_cs() -> List[Dict[str, Any]]:
             if fdr_metrics and fdr_metrics.get('home_fdr_outright') is not None:
                 home_xg, away_xg = estimate_xg_from_fdr_outrights_for_app2(fdr_metrics['home_fdr_outright'], fdr_metrics['away_fdr_outright']); xg_source_str = "fdr_outrights_estimation"
             else: home_xg, away_xg = AVERAGE_TOTAL_GOALS_IN_MATCH / 2.0, AVERAGE_TOTAL_GOALS_IN_MATCH / 2.0; xg_source_str = "default_average_fallback"
-        home_xg, away_xg = float(home_xg or 0), float(away_xg or 0)
+        
+        # Apply enhanced xG validation
+        home_xg, away_xg = validate_and_adjust_xg(float(home_xg or 0), float(away_xg or 0))
         
         team_cs_home, team_cs_away = 0.0, 0.0
         cs_cache_key = FIXTURE_ID_TO_CS_CACHE_KEY_MAP.get(fixture_id)
         if cs_cache_key and cs_cache_key in TEAM_CS_PERCENTAGES_CACHE:
             cs_data_match = TEAM_CS_PERCENTAGES_CACHE[cs_cache_key]
             team_cs_home, team_cs_away = cs_data_match.get(home_c, 0.0), cs_data_match.get(away_c, 0.0)
-
-        if PLAYER_STATS_DF is not None and not PLAYER_STATS_DF.empty:
-            for team_c_loop, is_home in [(home_c, True), (away_c, False)]:
-                team_xg = home_xg if is_home else away_xg
-                players_df_team = PLAYER_STATS_DF[PLAYER_STATS_DF['Team_Canonical'] == team_c_loop]
-                team_goals_total, team_assists_total = TEAM_SEASON_STATS.get(team_c_loop, {}).get("goals", 0.0), TEAM_SEASON_STATS.get(team_c_loop, {}).get("assists", 0.0)
-                for _, p_row in players_df_team.iterrows():
-                    p_name, p_id, p_api_id = str(p_row.get('Player Name','N/A')), str(p_row.get('player_id')) if pd.notna(p_row.get('player_id')) else None, str(p_row.get('Player API ID')) if pd.notna(p_row.get('Player API ID')) else None
-                    ags_p, ags_s, aas_p, aas_s = _calculate_player_specific_probabilities_for_app2(p_name, p_id, p_api_id, team_c_loop, float(p_row.get('Goals',0.0)), float(p_row.get('Assists',0.0)), team_goals_total, team_assists_total, team_xg, home_c, away_c, date_s, DIRECT_AGS_DATA_FROM_JSON, xg_source_str)
-                    p_pos = p_row.get('Position')
-                    p_cs_prob = 0.0
-                    if p_pos and any(def_p.lower() in str(p_pos).lower() for def_p in DEFENSIVE_POSITIONS):
-                        p_cs_prob = team_cs_home if is_home else team_cs_away
-                    p_team_details = TEAM_DETAILS.get(team_c_loop, DEFAULT_TEAM_DETAIL)
-                    current_match_players_data_list.append({
-                        "player_name": p_name, "player_id": p_id, "player_api_id": p_api_id, "team_name_canonical": team_c_loop,
-                        "team_api_id": p_team_details.get('api_id'), "team_short_code": p_team_details['short_code'], "Position": p_pos,
-                        "player_display_name": p_row.get('player_display_name', p_name), "player_price": p_row.get('player_price'), "player_image": p_row.get('player_image'),
-                        "anytime_goalscorer_probability": ags_p, "ags_prob_source": ags_s, "anytime_assist_probability": aas_p, "aas_prob_source": aas_s,
-                        "clean_sheet_probability": round(p_cs_prob, 2)
-                    })
-                    processed_players_tracker.add((p_name.lower(), team_c_loop, p_id, p_api_id))
         
-        if DIRECT_AGS_DATA_FROM_JSON and 'matches' in DIRECT_AGS_DATA_FROM_JSON:
-            for ags_match in DIRECT_AGS_DATA_FROM_JSON['matches']:
-                entry_home_ags, entry_away_ags, entry_date_ags = get_canonical_team_name(ags_match.get('home_team',''), TEAM_NAME_MAPPING), get_canonical_team_name(ags_match.get('away_team',''), TEAM_NAME_MAPPING), ags_match.get('date')
-                if frozenset({entry_home_ags, entry_away_ags}) == frozenset({home_c, away_c}) and entry_date_ags == date_s:
-                    for ags_p_json in ags_match.get('players',[]):
-                        p_name_j, p_team_orig_j = str(ags_p_json.get('player','')).strip(), str(ags_p_json.get('team','')).strip()
-                        p_team_c_j = get_canonical_team_name(p_team_orig_j, TEAM_NAME_MAPPING)
-                        p_id_j, p_api_id_j = str(ags_p_json.get('player_id')) if pd.notna(ags_p_json.get('player_id')) else None, str(ags_p_json.get('player_api_id')) if pd.notna(ags_p_json.get('player_api_id')) else None
-                        if not p_name_j or not p_team_c_j or p_team_c_j.startswith("N/A_"): continue
-                        
-                        already_processed_flag = False
-                        for proc_key in processed_players_tracker:
-                            proc_n, proc_t, proc_pid, proc_apiid = proc_key
-                            if p_name_j.lower() == proc_n and p_team_c_j == proc_t and \
-                               ((p_id_j and p_id_j == proc_pid) or (p_api_id_j and p_api_id_j == proc_apiid) or \
-                                (not p_id_j and not p_api_id_j and not proc_pid and not proc_apiid)):
-                                already_processed_flag = True; break
-                        if already_processed_flag: continue
-                        
-                        direct_ags_p_j = None
-                        try: odds_j = float(ags_p_json.get('odds')); direct_ags_p_j = (1.0/odds_j) if odds_j > 1.0 else None
-                        except (ValueError,TypeError): pass
+        for team_c_loop, is_home in [(home_c, True), (away_c, False)]:
+            team_xg = home_xg if is_home else away_xg
+            opponent_xg = away_xg if is_home else home_xg
+            team_cs_prob = team_cs_home if is_home else team_cs_away
+            
+            players_df_team = PLAYER_STATS_DF[PLAYER_STATS_DF['Team_Canonical'] == team_c_loop]
+            team_goals_total, team_assists_total = TEAM_SEASON_STATS.get(team_c_loop, {}).get("goals", 0.0), TEAM_SEASON_STATS.get(team_c_loop, {}).get("assists", 0.0)
+            for _, p_row in players_df_team.iterrows():
+                p_name, p_pos = str(p_row.get('Player Name','N/A')), p_row.get('Position')
+                p_id, p_api_id = str(p_row.get('player_id')) if pd.notna(p_row.get('player_id')) else None, str(p_row.get('Player API ID')) if pd.notna(p_row.get('Player API ID')) else None
+                
+                # Enhanced probability calculation
+                ags_p, ags_s, aas_p, aas_s = _calculate_player_probabilities(
+                    player_name=p_name, p_pos=p_pos, p_id_excel=p_id, p_api_id_excel=p_api_id, team_canon=team_c_loop,
+                    p_goals=float(p_row.get('Goals',0.0)), p_assists=float(p_row.get('Assists',0.0)),
+                    team_goals=team_goals_total, team_assists=team_assists_total, team_match_xg=team_xg,
+                    match_home_c=home_c, match_away_c=away_c, xg_src_str=xg_source_str)
+                
+                # Enhanced clean sheet calculation
+                p_cs_prob = calculate_realistic_clean_sheet_probability(team_cs_prob, p_pos, opponent_xg)
+                
+                p_team_details = TEAM_DETAILS.get(team_c_loop, DEFAULT_TEAM_DETAIL)
+                current_match_players_data_list.append({
+                    "player_name": p_name, "player_id": p_id, "player_api_id": p_api_id, "team_name_canonical": team_c_loop,
+                    "team_api_id": p_team_details.get('api_id'), "team_short_code": p_team_details['short_code'], "Position": p_pos,
+                    "player_display_name": p_row.get('player_display_name', p_name), "player_price": p_row.get('player_price'), "player_image": p_row.get('player_image'),
+                    "anytime_goalscorer_probability": ags_p, "ags_prob_source": ags_s, "anytime_assist_probability": aas_p, "aas_prob_source": aas_s,
+                    "clean_sheet_probability": round(p_cs_prob, 2)})
+                processed_players_tracker.add((p_name.lower(), team_c_loop, p_id, p_api_id))
+        
+        # Handle players from AGS odds not in Excel (same logic but enhanced)
+        if AGS_ODDS_LOOKUP:
+            match_key_ags = frozenset({home_c, away_c})
+            if match_key_ags in AGS_ODDS_LOOKUP:
+                 for ags_p_json in AGS_ODDS_LOOKUP[match_key_ags]:
+                    p_name_j, p_team_orig_j = str(ags_p_json.get('player','')).strip(), str(ags_p_json.get('team','')).strip()
+                    p_team_c_j = get_canonical_team_name(p_team_orig_j, TEAM_NAME_MAPPING)
+                    p_id_j, p_api_id_j = str(ags_p_json.get('player_id')) if pd.notna(ags_p_json.get('player_id')) else None, str(ags_p_json.get('player_api_id')) if pd.notna(ags_p_json.get('player_api_id')) else None
+                    if not p_name_j or not p_team_c_j or p_team_c_j.startswith("N/A_"): continue
+                    already_processed_flag = any(
+                        p_name_j.lower() == proc_n and p_team_c_j == proc_t and ((p_id_j and p_id_j == proc_pid) or (p_api_id_j and p_api_id_j == proc_apiid) or (not p_id_j and not p_api_id_j and not proc_pid and not proc_apiid))
+                        for proc_n, proc_t, proc_pid, proc_apiid in processed_players_tracker)
+                    if already_processed_flag: continue
+                    direct_ags_p_j = None
+                    try:
+                        odds_j = float(ags_p_json.get('odds'))
+                        direct_ags_p_j = (1.0/odds_j) if odds_j > 1.0 else None
+                    except (ValueError,TypeError): continue
+                    if direct_ags_p_j is not None:
+                        # Apply probability caps to direct odds
+                        capped_ags_prob = apply_probability_caps(direct_ags_p_j * 100, 'ags')
                         
                         p_pos_j = ags_p_json.get("position")
-                        p_cs_prob_j = 0.0
-                        if p_pos_j and any(def_p.lower() in str(p_pos_j).lower() for def_p in DEFENSIVE_POSITIONS):
-                            p_cs_prob_j = team_cs_home if p_team_c_j == home_c else team_cs_away if p_team_c_j == away_c else 0.0
+                        opponent_xg_j = away_xg if p_team_c_j == home_c else home_xg  
+                        team_cs_prob_j = team_cs_home if p_team_c_j == home_c else team_cs_away
+                        p_cs_prob_j = calculate_realistic_clean_sheet_probability(team_cs_prob_j, p_pos_j, opponent_xg_j)
                         
-                        if direct_ags_p_j is not None:
-                            p_team_details_j = TEAM_DETAILS.get(p_team_c_j, DEFAULT_TEAM_DETAIL)
-                            current_match_players_data_list.append({
-                                "player_name": p_name_j, "player_id": p_id_j, "player_api_id": p_api_id_j, "team_name_canonical": p_team_c_j,
-                                "team_api_id": p_team_details_j.get('api_id'), "team_short_code": p_team_details_j['short_code'], "Position": p_pos_j,
-                                "player_display_name": p_name_j, "player_price": None, "player_image": None,
-                                "anytime_goalscorer_probability": round(direct_ags_p_j * 100.0, 2), "ags_prob_source": "direct_odds_only (not_in_excel)",
-                                "anytime_assist_probability": 0.0, "aas_prob_source": "unavailable (not_in_excel)",
-                                "clean_sheet_probability": round(p_cs_prob_j, 2)
-                            })
-                            processed_players_tracker.add((p_name_j.lower(), p_team_c_j, p_id_j, p_api_id_j))
-
+                        p_team_details_j = TEAM_DETAILS.get(p_team_c_j, DEFAULT_TEAM_DETAIL)
+                        current_match_players_data_list.append({
+                            "player_name": p_name_j, "player_id": p_id_j, "player_api_id": p_api_id_j, "team_name_canonical": p_team_c_j,
+                            "team_api_id": p_team_details_j.get('api_id'), "team_short_code": p_team_details_j['short_code'], "Position": p_pos_j,
+                            "player_display_name": p_name_j, "player_price": None, "player_image": None,
+                            "anytime_goalscorer_probability": capped_ags_prob, "ags_prob_source": "direct_odds_capped (not_in_excel)",
+                            "anytime_assist_probability": 0.0, "aas_prob_source": "unavailable (not_in_excel)",
+                            "clean_sheet_probability": round(p_cs_prob_j, 2)})
+                        processed_players_tracker.add((p_name_j.lower(), p_team_c_j, p_id_j, p_api_id_j))
+        
         all_match_output_stats.append({"fixture_id": fixture_id, "GW": gw, "date_str": date_s, "home_team_canonical": home_c, "away_team_canonical": away_c, "home_team_xg": round(home_xg,3), "away_team_xg": round(away_xg,3), "xg_source": xg_source_str, "players_data": current_match_players_data_list})
     return all_match_output_stats
 
+def _populate_ags_odds_lookup(ags_data: Optional[Dict[str, Any]], team_map: Dict[str, str]):
+    global AGS_ODDS_LOOKUP
+    if not ags_data or 'matches' not in ags_data:
+        print("WARNING: Anytime goalscorer data is missing or invalid. AGS odds lookup will be empty.")
+        return
+    print("INFO:     Populating AGS Odds Lookup from source file...")
+    for match in ags_data['matches']:
+        home_team_raw, away_team_raw, players = match.get('home_team'), match.get('away_team'), match.get('players')
+        if not home_team_raw or not away_team_raw or not players: continue
+        home_c = get_canonical_team_name(home_team_raw, team_map)
+        away_c = get_canonical_team_name(away_team_raw, team_map)
+        if home_c.startswith("N/A_") or away_c.startswith("N/A_"): continue
+        lookup_key = frozenset({home_c, away_c})
+        AGS_ODDS_LOOKUP[lookup_key] = players
+    print(f"INFO:     AGS Odds Lookup populated with data for {len(AGS_ODDS_LOOKUP)} matchups.")
+
 # --- Lifespan Event Handler ---
 @asynccontextmanager
-async def lifespan_manager(app_instance: FastAPI): 
+async def lifespan_manager(app_instance: FastAPI):
     print("INFO:     Application startup - Precomputing all data...")
-    global PLAYER_STATS_DF, TEAM_SEASON_STATS, CS_ODDS_LOOKUP, DIRECT_AGS_DATA_FROM_JSON, \
+    global PLAYER_STATS_DF, TEAM_SEASON_STATS, CS_ODDS_LOOKUP, AGS_ODDS_LOOKUP, \
            ALL_BASE_FIXTURES, FIXTURE_ID_GW_LOOKUP, TEAM_STRENGTH_METRICS, \
            MATCH_HISTORY_CONTEXTS, FIXTURE_FDR_METRICS_CACHE, \
            FIXTURE_LOOKUP_MAP, TEAM_CS_PERCENTAGES_CACHE, FIXTURE_ID_TO_CS_CACHE_KEY_MAP
+
+    # Initialize dictionary to avoid UnboundLocalError
+    TEAM_STRENGTH_METRICS = {}
 
     for team_name_detail_key, details_val in TEAM_DETAILS.items():
         if team_name_detail_key not in TEAM_NAME_MAPPING: TEAM_NAME_MAPPING[team_name_detail_key] = team_name_detail_key
         if isinstance(details_val.get("api_id"), int): TEAM_NAME_MAPPING[str(details_val["api_id"])] = team_name_detail_key
     print("INFO:     TEAM_NAME_MAPPING enriched.")
-
-    try: load_and_prepare_fixture_data_for_app1_lookup(FULL_FIXTURE_DATA_RAW, TEAM_NAME_MAPPING)
-    except Exception as e: print(f"ERROR: Failed App1 lookup map: {e}")
-
+    
     try:
+        load_and_prepare_fixture_data_for_app1_lookup(FULL_FIXTURE_DATA_RAW, TEAM_NAME_MAPPING)
+        _populate_fixture_id_gw_lookup_for_app2(FULL_FIXTURE_DATA_RAW, TEAM_NAME_MAPPING)
         cs_data_cache = load_json_data(CORRECT_SCORE_FILE_PATH)
         if cs_data_cache:
             team_cs_res = calculate_team_cs_percentages_logic(cs_data_cache, TEAM_NAME_MAPPING, TEAM_DETAILS, FIXTURE_LOOKUP_MAP)
@@ -918,81 +1113,52 @@ async def lifespan_manager(app_instance: FastAPI):
                 if match_id_k not in TEAM_CS_PERCENTAGES_CACHE: TEAM_CS_PERCENTAGES_CACHE[match_id_k] = {}
                 TEAM_CS_PERCENTAGES_CACHE[match_id_k][team_c] = cs_p
                 if fix_id and fix_id != "N/A_FID": FIXTURE_ID_TO_CS_CACHE_KEY_MAP[fix_id] = match_id_k
-            print(f"INFO:     Team CS percentages cached ({len(TEAM_CS_PERCENTAGES_CACHE)} matches). FIXTURE_ID_TO_CS_CACHE_KEY_MAP populated ({len(FIXTURE_ID_TO_CS_CACHE_KEY_MAP)}).")
-        else: print("ERROR:    Correct score data file not found for CS cache.")
-    except Exception as e: print(f"ERROR: Failed pre-caching team CS percentages: {e}")
-
-    try: _populate_fixture_id_gw_lookup_for_app2(FULL_FIXTURE_DATA_RAW, TEAM_NAME_MAPPING)
-    except Exception as e: print(f"ERROR: App2 FIXTURE_ID_GW_LOOKUP population: {e}")
-    try:
+            print(f"INFO:     Team CS percentages cached ({len(TEAM_CS_PERCENTAGES_CACHE)} matches).")
+        
         create_base_fixtures_with_canonical_names_from_hardcoded_for_app2(USER_PROVIDED_FIXTURES_WITH_STADIUMS_RAW, TEAM_NAME_MAPPING, FIXTURE_ID_GW_LOOKUP)
-        if not ALL_BASE_FIXTURES: print("CRITICAL WARNING: ALL_BASE_FIXTURES empty.")
-    except Exception as e: print(f"ERROR: App2 ALL_BASE_FIXTURES creation: {e}")
-
-    all_teams_app2 = {team_c for fix in ALL_BASE_FIXTURES for team_c in (fix['home_team_canonical'], fix['away_team_canonical'])} if ALL_BASE_FIXTURES else set()
-    for team_c in all_teams_app2:
-        if team_c not in TEAM_SEASON_STATS: TEAM_SEASON_STATS[team_c] = {"goals": 0.0, "assists": 0.0}
-    print(f"INFO:     Initialized TEAM_SEASON_STATS for {len(all_teams_app2)} teams.")
-
-    try:
+        if not ALL_BASE_FIXTURES: raise RuntimeError("CRITICAL ERROR: ALL_BASE_FIXTURES list is empty after processing. Cannot continue.")
+        
+        all_teams_app2 = {team_c for fix in ALL_BASE_FIXTURES for team_c in (fix['home_team_canonical'], fix['away_team_canonical'])}
+        for team_c in all_teams_app2:
+            if team_c not in TEAM_SEASON_STATS: TEAM_SEASON_STATS[team_c] = {"goals": 0.0, "assists": 0.0}
+        
         PLAYER_STATS_DF = pd.read_excel(PLAYER_STATS_FP, sheet_name='Sheet1')
-        team_col = 'Team Name' if 'Team Name' in PLAYER_STATS_DF.columns else 'Team' if 'Team' in PLAYER_STATS_DF.columns else None
-        if not team_col: raise ValueError(f"Excel {PLAYER_STATS_FP} needs 'Team Name' or 'Team' column.")
-        for col in ['Player Name', 'Position', 'player_id', 'Player API ID', 'player_display_name', 'player_price', 'player_image', 'Goals', 'Assists']:
-            if col not in PLAYER_STATS_DF.columns: PLAYER_STATS_DF[col] = 0.0 if col in ['Goals','Assists'] else None
+        team_col = 'Team Name' if 'Team Name' in PLAYER_STATS_DF.columns else 'Team'
         PLAYER_STATS_DF['Team_Canonical'] = PLAYER_STATS_DF[team_col].apply(lambda x: get_canonical_team_name(str(x), TEAM_NAME_MAPPING))
         for col in ['Goals', 'Assists']: PLAYER_STATS_DF[col] = pd.to_numeric(PLAYER_STATS_DF[col], errors='coerce').fillna(0.0)
         for team_c, group_df in PLAYER_STATS_DF.groupby('Team_Canonical'):
-            if team_c in TEAM_SEASON_STATS: 
+            if team_c in TEAM_SEASON_STATS:
                 TEAM_SEASON_STATS[team_c]["goals"] = float(group_df['Goals'].sum())
                 TEAM_SEASON_STATS[team_c]["assists"] = float(group_df['Assists'].sum())
-        print(f"INFO:     PLAYER_STATS_DF loaded, TEAM_SEASON_STATS updated.")
-    except Exception as e: print(f"ERROR: Loading player stats {PLAYER_STATS_FP}: {e}"); PLAYER_STATS_DF = pd.DataFrame()
+        print(f"INFO:     PLAYER_STATS_DF loaded and TEAM_SEASON_STATS populated.")
 
-    cs_data_app2_xg = load_json_data(CORRECT_SCORE_FILE_PATH) 
-    if cs_data_app2_xg and 'matches' in cs_data_app2_xg:
-        for match_entry in cs_data_app2_xg['matches']:
-            match_s, cs_o, date_v = match_entry.get('match',''), match_entry.get('correct_score_odds'), match_entry.get('date')
-            h_c, a_c = parse_cs_match_string_for_canonical_teams_for_app2(match_s, TEAM_NAME_MAPPING)
-            if h_c and a_c and date_v and isinstance(cs_o, dict): CS_ODDS_LOOKUP[(h_c, a_c, date_v)] = cs_o
-        print(f"INFO:     CS_ODDS_LOOKUP populated ({len(CS_ODDS_LOOKUP)}).")
-
-    try:
-        DIRECT_AGS_DATA_FROM_JSON = load_json_data(UNIFIED_ANYTIME_GOALSCORER_FILE_PATH)
-        if DIRECT_AGS_DATA_FROM_JSON: print("INFO:     Direct AGS JSON data loaded.")
-    except Exception as e: print(f"ERROR: Loading Direct AGS JSON: {e}")
-
-    try:
+        ags_data_to_load = load_json_data(UNIFIED_ANYTIME_GOALSCORER_FILE_PATH)
+        if ags_data_to_load: _populate_ags_odds_lookup(ags_data_to_load, TEAM_NAME_MAPPING)
+        
         df_outright = get_tournament_outright_odds_data_for_app2(HTML_ODDS_FP, MD_ODDS_FP, TEAM_NAME_MAPPING)
         normalize_tournament_implied_probs_for_app2(df_outright, all_teams_app2)
-    except Exception as e: print(f"ERROR: TEAM_STRENGTH_METRICS calculation: {e}"); TEAM_STRENGTH_METRICS = {t:10.0 for t in all_teams_app2}
+        
+        ALL_BASE_FIXTURES.sort(key=lambda x: x['datetime_obj'])
+        create_last_match_dates_history_for_app2(ALL_BASE_FIXTURES)
+        for i, fix_fdr in enumerate(ALL_BASE_FIXTURES):
+            hist_ctx = MATCH_HISTORY_CONTEXTS[i] if i < len(MATCH_HISTORY_CONTEXTS) else {}
+            calculate_outright_fdr_components_for_app2(fix_fdr, TEAM_STRENGTH_METRICS, hist_ctx)
+        print(f"INFO:     FIXTURE_FDR_METRICS_CACHE populated.")
 
-    if ALL_BASE_FIXTURES:
-        ALL_BASE_FIXTURES.sort(key=lambda x: x['datetime_obj']) 
-        try: create_last_match_dates_history_for_app2(ALL_BASE_FIXTURES)
-        except Exception as e: print(f"ERROR: MATCH_HISTORY_CONTEXTS creation: {e}")
-
-    if ALL_BASE_FIXTURES and TEAM_STRENGTH_METRICS and MATCH_HISTORY_CONTEXTS:
-        try:
-            for i, fix_fdr in enumerate(ALL_BASE_FIXTURES):
-                hist_ctx = MATCH_HISTORY_CONTEXTS[i] if i < len(MATCH_HISTORY_CONTEXTS) else {}
-                calculate_outright_fdr_components_for_app2(fix_fdr, TEAM_STRENGTH_METRICS, hist_ctx)
-            print(f"INFO:     FIXTURE_FDR_METRICS_CACHE populated ({len(FIXTURE_FDR_METRICS_CACHE)}).")
-        except Exception as e: 
-            print(f"ERROR:    Failed during App2 FIXTURE_FDR_METRICS_CACHE population: {e}")
-            import traceback
-            traceback.print_exc()
-
+    except Exception as e:
+        print(f"FATAL ERROR during application startup: {e}")
+        import traceback; traceback.print_exc()
+        raise RuntimeError("Failed to complete application pre-computation.") from e
 
     print("INFO:     Application startup precomputation complete.")
     yield
     print("INFO:     Application shutdown.")
 
 app = FastAPI(
-    title="Football Super Stats API",
-    description="API for Team/Player Clean Sheets, Top Correct Scores, and Combined Player Stats (AGS, AAS, CS).",
-    version="2.1.2", # Incremented for these fixes
-    lifespan=lifespan_manager 
+    title="Football Super Stats API - Enhanced Edition",
+    description="Enhanced API for Team/Player Clean Sheets, Top Correct Scores, and Combined Player Stats (AGS, AAS, CS) with realistic probability calculations.",
+    version="3.0.0",
+    lifespan=lifespan_manager
 )
 
 # --- FastAPI Endpoints ---
@@ -1002,11 +1168,8 @@ async def get_team_clean_sheets():
         cs_data = load_json_data(CORRECT_SCORE_FILE_PATH)
         if not cs_data: raise HTTPException(status_code=500, detail="Could not load correct_score.json")
         results = calculate_team_cs_percentages_logic(cs_data, TEAM_NAME_MAPPING, TEAM_DETAILS, FIXTURE_LOOKUP_MAP)
-        if not results: raise HTTPException(status_code=404, detail="No team clean sheet data calculated.")
         return results
-    except Exception as e: 
-        print(f"ERROR /team-clean-sheets/: {e}"); import traceback; traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/top-correct-scores/", response_model=List[TopCorrectScores], tags=["Clean Sheets & Scores (Original)"])
 async def get_top_correct_scores():
@@ -1014,11 +1177,8 @@ async def get_top_correct_scores():
         cs_data = load_json_data(CORRECT_SCORE_FILE_PATH)
         if not cs_data: raise HTTPException(status_code=500, detail="Could not load correct_score.json")
         results = calculate_top_scores_logic(cs_data, TEAM_NAME_MAPPING, FIXTURE_LOOKUP_MAP)
-        if not results: raise HTTPException(status_code=404, detail="No top correct score data calculated.")
         return results
-    except Exception as e: 
-        print(f"ERROR /top-correct-scores/: {e}"); import traceback; traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/player-clean-sheets/", response_model=List[MatchWithPlayerCleanSheets], tags=["Clean Sheets & Scores (Original)"])
 async def get_player_clean_sheets():
@@ -1027,17 +1187,20 @@ async def get_player_clean_sheets():
         if not ags_data: raise HTTPException(status_code=500, detail="Could not load anytime_goalscorer.json")
         if not TEAM_CS_PERCENTAGES_CACHE: raise HTTPException(status_code=503, detail="Team CS cache unavailable.")
         results = calculate_player_clean_sheets_logic(ags_data, TEAM_CS_PERCENTAGES_CACHE, TEAM_NAME_MAPPING, TEAM_DETAILS, FIXTURE_LOOKUP_MAP)
-        if not results: raise HTTPException(status_code=404, detail="No player clean sheet data calculated.")
         return results
-    except Exception as e: 
-        print(f"ERROR /player-clean-sheets/: {e}"); import traceback; traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
-# Merged Endpoint
-@app.get("/all-matches-player-stats/", response_model=List[MatchWithPlayerCombinedStats], tags=["Player Stats (Combined)"])
+@app.get("/all-matches-player-stats/", response_model=List[MatchWithPlayerCombinedStats], tags=["Player Stats (Enhanced Combined)"])
 async def get_all_matches_player_combined_stats_endpoint():
+    """
+    Enhanced endpoint returning realistic player probabilities with:
+    - Hybrid AGS model (60% direct odds + 40% enhanced Poisson)
+    - Position-aware probability calculations
+  
+    - Enhanced clean sheet calculations
+    """
     try:
-        all_matches_data = calculate_all_matches_combined_stats_with_cs() 
+        all_matches_data = calculate_all_matches_combined_stats_with_cs()
         if not all_matches_data: raise HTTPException(status_code=404, detail="No combined player stats calculated.")
         results = [MatchWithPlayerCombinedStats(
                         fixture_id=match_data["fixture_id"], GW=match_data["GW"], date_str=match_data["date_str"],
@@ -1046,38 +1209,99 @@ async def get_all_matches_player_combined_stats_endpoint():
                         xg_source=match_data.get("xg_source"),
                         players=[PlayerCombinedStats(**p_data) for p_data in match_data["players_data"]]
                     ) for match_data in all_matches_data]
-        if not results: raise HTTPException(status_code=404, detail="Combined player stats results list empty after processing.")
         return results
-    except Exception as e: 
+    except Exception as e:
         print(f"Error /all-matches-player-stats/: {e}"); import traceback; traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/", tags=["Information"])
+async def root():
+    return {
+        "message": "Football Super Stats API - Enhanced Edition",
+        "version": "3.0.0",
+        "features": [
+            
+            "📊 Position-aware probability calculations",
+            "🎯 Enhanced xG distribution and validation",
+            "🛡️ Improved clean sheet calculations",
+            "⚡ Quality assurance and validation"
+        ],
+        "improvements": {
+            "AGS_calculation": "Hybrid model prevents unrealistic probabilities",
+            "AAS_calculation": "Position-specific modifiers for realistic assist probabilities",
+            "CS_calculation": "Enhanced logic considering opponent strength",
+            "xG_validation": "Automatic adjustment of unrealistic team totals"
+        },
+        "endpoints": [
+            "/team-clean-sheets/",
+            "/top-correct-scores/",
+            "/player-clean-sheets/",
+            "/all-matches-player-stats/"
+        ]
+    }
+
 if __name__ == "__main__":
     import uvicorn
-    import traceback 
-    print("Running script directly for testing & output generation...")
+    import traceback
+    print("🚀 Running Enhanced Football Stats API for testing & output generation...")
     if not os.path.exists(DATA_DIR): os.makedirs(DATA_DIR); print(f"INFO: Created data directory: {DATA_DIR}")
     else: print(f"INFO: Using existing data directory: {DATA_DIR}")
 
     async def main_script_runner():
-        async with lifespan_manager(app) as _: 
-            print("Lifespan simulation complete. Data loaded.")
-            print("\n--- Testing New Combined Player Stats Logic & Generating Output ---")
-            output_combined = calculate_all_matches_combined_stats_with_cs()
-            print(f"Combined Player Stats: Processed {len(output_combined)} matches.")
-            if output_combined:
-                try:
-                    with open(OUTPUT_COMBINED_PLAYER_STATS_JSON_FP, 'w', encoding='utf-8') as f:
-                        json.dump(output_combined, f, indent=2, ensure_ascii=False)
-                    print(f"Combined player stats output saved to {OUTPUT_COMBINED_PLAYER_STATS_JSON_FP}")
-                except Exception as e_json: print(f"Error saving output to JSON: {e_json}")
-            else: print("No combined stats generated, skipping file output.")
+        try:
+            async with lifespan_manager(app) as _:
+                print("✅ Lifespan simulation complete. Enhanced data loaded.")
+                print("\n--- Testing Enhanced Combined Player Stats Logic & Generating Output ---")
+                output_combined = calculate_all_matches_combined_stats_with_cs()
+                print(f"✅ Enhanced Combined Player Stats: Processed {len(output_combined)} matches.")
+                
+                # Quality check - look for any suspicious probabilities
+                suspicious_count = 0
+                for match in output_combined:
+                    for player in match.get('players_data', []):
+                        if player['anytime_goalscorer_probability'] > 70:
+                            print(f"⚠️  High AGS: {player['player_name']} ({player['team_name_canonical']}) - {player['anytime_goalscorer_probability']}%")
+                            suspicious_count += 1
+                        if player['anytime_assist_probability'] > 50:
+                            print(f"⚠️  High AAS: {player['player_name']} ({player['team_name_canonical']}) - {player['anytime_assist_probability']}%")
+                            suspicious_count += 1
+                
+                if suspicious_count == 0:
+                    print("✅ Quality Check: All probabilities within realistic ranges!")
+                else:
+                    print(f"⚠️  Quality Check: Found {suspicious_count} potentially high probability values")
+                
+                if output_combined:
+                    try:
+                        with open(OUTPUT_COMBINED_PLAYER_STATS_JSON_FP, 'w', encoding='utf-8') as f:
+                            json.dump(output_combined, f, indent=2, ensure_ascii=False)
+                        print(f"💾 Enhanced combined player stats output saved to {OUTPUT_COMBINED_PLAYER_STATS_JSON_FP}")
+                        
+                        # Show sample of enhanced calculations
+                        if output_combined and output_combined[0].get('players_data'):
+                            sample_player = output_combined[0]['players_data'][0]
+                            print(f"\n📊 Sample Enhanced Calculation:")
+                            print(f"   Player: {sample_player['player_name']} ({sample_player['team_name_canonical']})")
+                            print(f"   AGS: {sample_player['anytime_goalscorer_probability']}% ({sample_player['ags_prob_source']})")
+                            print(f"   AAS: {sample_player['anytime_assist_probability']}% ({sample_player['aas_prob_source']})")
+                            print(f"   CS: {sample_player['clean_sheet_probability']}%")
+                        
+                    except Exception as e_json: print(f"❌ Error saving output to JSON: {e_json}")
+                else: print("❌ No enhanced stats generated, skipping file output.")
+        except Exception as e:
+            print(f"\n❌ --- ENHANCED SCRIPT FAILED TO RUN DUE TO STARTUP ERROR ---")
+            print(f"Error: {e}")
 
     import asyncio
     if os.name == 'nt': asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(main_script_runner())
-    print("\n--- Testing Complete ---")
-    print("To run as an API server (e.g., if file is main.py): uvicorn main:app --reload --port 8000")
+    print("\n🎉 --- Enhanced Testing Complete ---")
+    print("📝 Key Improvements Applied:")
+    
+    print("   • Hybrid model balances direct odds with statistical models")
+    print("   • Position-aware calculations for more realistic probabilities")
+    print("   • Enhanced xG validation and clean sheet logic")
+    print("\n🚀 To run as Enhanced API server: uvicorn main:app --reload --port 8000")
 # To run this application:
 # 1. Save this script as main.py
 # 2. Make sure correct_score.json and updated_anytimegoalscorer.json are in the same directory.
