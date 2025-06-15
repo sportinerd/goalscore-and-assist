@@ -126,9 +126,9 @@ AGS_HYBRID_MODEL_WEIGHTS = {
 # Enhanced probability caps for realism
 PROBABILITY_CAPS = {
     'ags_max': 75.0,  # Maximum 75% AGS probability
-    'ags_min': 0.1,   # Minimum 0.1% AGS probability  
+    'ags_min': 0,   # Minimum 0.1% AGS probability  
     'aas_max': 60.0,  # Maximum 60% AAS probability
-    'aas_min': 0.1,   # Minimum 0.1% AAS probability
+    'aas_min': 0,   # Minimum 0.1% AAS probability
     'cs_max': 85.0,   # Maximum 85% clean sheet probability
     'cs_min': 5.0     # Minimum 5% clean sheet probability
 }
